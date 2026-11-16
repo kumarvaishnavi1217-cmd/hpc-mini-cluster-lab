@@ -1,0 +1,17 @@
+---
+ansible_user: root
+pve_cluster_name: pve-lab
+rocky_cloud_image_url: https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2
+
+# Bond + VLAN-aware bridges on each hypervisor
+pve_bond_slaves: [enp1s0f0, enp1s0f1]
+pve_mgmt_nic: eno1
+
+pve_ha_group: mgmt-plane
+pve_ha_resources: "{{ groups['mgmt_plane'] | map('extract', hostvars, 'vmid') | list }}"
+
+pbs_server: "{{ hostvars['pbs01'].ansible_host }}"
+pbs_datastore: lab-backups
+pbs_storage_id: pbs-lab
+pbs_backup_schedule: "daily 02:00"
+pbs_keep: "keep-daily=7,keep-weekly=4"

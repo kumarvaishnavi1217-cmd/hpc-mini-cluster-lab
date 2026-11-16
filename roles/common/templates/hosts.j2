@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+127.0.0.1   localhost localhost.localdomain
+::1         localhost localhost.localdomain
+
+{% for host in groups['rocky'] | sort %}
+{% set hv = hostvars[host] %}
+{{ hv.ansible_host }}  {{ host }}.{{ cluster_domain }} {{ host }}
+{% if hv.compute_ip is defined %}
+{{ hv.compute_ip }}  {{ host }}-compute
+{% endif %}
+{% endfor %}

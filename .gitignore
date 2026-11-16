@@ -1,0 +1,9 @@
+.vault_pass
+*.retry
+collections/
+.venv/
+venv/
+__pycache__/
+*.qcow2
+*.img
+wireguard/clients/*.conf

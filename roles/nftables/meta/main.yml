@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: hpc-mini-cluster-lab
+  description: Default-deny nftables ruleset, opened per node role
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions: ["9"]
+dependencies: []

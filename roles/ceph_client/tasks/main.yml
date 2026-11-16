@@ -1,0 +1,71 @@
+---
+- name: Add Ceph repository
+  ansible.builtin.yum_repository:
+    name: ceph
+    description: "Ceph {{ ceph_release }}"
+    baseurl: "https://download.ceph.com/rpm-{{ ceph_release }}/el9/$basearch"
+    gpgkey: https://download.ceph.com/keys/release.asc
+    gpgcheck: true
+
+- name: Install ceph-common
+  ansible.builtin.dnf:
+    name: ceph-common
+    state: present
+
+- name: Fetch minimal ceph.conf from the bootstrap node
+  ansible.builtin.command: ceph config generate-minimal-conf
+  delegate_to: "{{ ceph_bootstrap_host }}"
+  register: ceph_minimal_conf
+  changed_when: false
+  run_once: true
+
+- name: Fetch client keyring
+  ansible.builtin.command: ceph auth get client.{{ ceph_client_id }}
+  delegate_to: "{{ ceph_bootstrap_host }}"
+  register: ceph_keyring
+  changed_when: false
+  run_once: true
+  no_log: true
+
+- name: Write /etc/ceph/ceph.conf
+  ansible.builtin.copy:
+    dest: /etc/ceph/ceph.conf
+    content: "{{ ceph_minimal_conf.stdout }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Write client keyring
+  ansible.builtin.copy:
+    dest: "/etc/ceph/ceph.client.{{ ceph_client_id }}.keyring"
+    content: "{{ ceph_keyring.stdout }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Check whether /home is already CephFS
+  ansible.builtin.command: findmnt -n -o FSTYPE {{ cephfs_home_mount }}
+  register: ceph_home_fstype
+  changed_when: false
+  failed_when: false
+
+- name: Seed CephFS with existing local home dirs (keeps the ansible user's SSH keys)
+  when: ceph_home_fstype.stdout != 'ceph'
+  ansible.builtin.shell: |
+    set -euo pipefail
+    mkdir -p /mnt/cephfs-seed
+    mount -t ceph {{ ceph_client_id }}@.{{ cephfs_name }}=/ /mnt/cephfs-seed
+    rsync -aAX --ignore-existing {{ cephfs_home_mount }}/ /mnt/cephfs-seed/
+    umount /mnt/cephfs-seed
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Mount CephFS as shared /home (kernel client, survives reboot)
+  ansible.posix.mount:
+    path: "{{ cephfs_home_mount }}"
+    src: "{{ ceph_client_id }}@.{{ cephfs_name }}=/"
+    fstype: ceph
+    opts: "noatime,_netdev,ms_mode=prefer-crc"
+    state: mounted

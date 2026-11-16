@@ -1,0 +1,19 @@
+---
+- name: Install slurmctld
+  ansible.builtin.dnf:
+    name: slurm-slurmctld
+    state: present
+
+- name: Enable slurmctld
+  ansible.builtin.systemd_service:
+    name: slurmctld
+    enabled: true
+    state: started
+
+- name: Wait for slurmctld to answer
+  ansible.builtin.command: scontrol ping
+  register: slurm_ping
+  until: "'UP' in slurm_ping.stdout"
+  retries: 10
+  delay: 5
+  changed_when: false

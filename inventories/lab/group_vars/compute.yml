@@ -1,0 +1,8 @@
+---
+# Per-VM sizing used by provision-vms.yml and by slurm.conf NodeName lines
+vm_cores: 8
+vm_memory_mb: 16384
+slurm_real_memory: 15000
+slurm_sockets: 1
+slurm_cores_per_socket: 8
+slurm_threads_per_core: 1

@@ -1,0 +1,43 @@
+---
+- name: Create node_exporter system user
+  ansible.builtin.user:
+    name: node_exporter
+    system: true
+    shell: /sbin/nologin
+    create_home: false
+
+- name: Download and unpack node_exporter
+  ansible.builtin.unarchive:
+    src: "{{ _base }}/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: /opt
+    remote_src: true
+    creates: "/opt/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+  vars:
+    _base: https://github.com/prometheus/node_exporter/releases/download
+
+- name: Link binary
+  ansible.builtin.file:
+    src: "/opt/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+    dest: /usr/local/bin/node_exporter
+    state: link
+  notify: Restart node_exporter
+
+- name: Restore SELinux context on binary
+  ansible.builtin.command: restorecon -R /opt/node_exporter-{{ node_exporter_version }}.linux-amd64
+  changed_when: false
+
+- name: Install systemd unit
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart node_exporter
+
+- name: Enable node_exporter
+  ansible.builtin.systemd_service:
+    name: node_exporter
+    enabled: true
+    state: started
+    daemon_reload: true

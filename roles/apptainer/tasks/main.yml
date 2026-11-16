@@ -1,0 +1,20 @@
+---
+- name: Install Apptainer (EPEL) with suid starter for overlay support
+  ansible.builtin.dnf:
+    name: [apptainer, apptainer-suid, squashfs-tools]
+    state: present
+
+- name: Shared, world-writable-sticky cache dir for image pulls
+  ansible.builtin.file:
+    path: "{{ apptainer_cache_dir }}"
+    state: directory
+    mode: "1777"
+
+- name: Point users at the node-local cache
+  ansible.builtin.copy:
+    dest: /etc/profile.d/apptainer.sh
+    content: |
+      export APPTAINER_CACHEDIR={{ apptainer_cache_dir }}/$USER
+    owner: root
+    group: root
+    mode: "0644"

@@ -1,0 +1,24 @@
+---
+# Ports opened per inventory group. Sources are restricted to cluster networks.
+nft_rules_by_group:
+  slurm_controller:
+    - { proto: tcp, ports: "6817", src: compute, comment: slurmctld }
+    - { proto: tcp, ports: "6819", src: compute, comment: slurmdbd }
+    - { proto: tcp, ports: "9341", src: mgmt, comment: slurm-exporter }
+  compute:
+    - { proto: tcp, ports: "6818", src: compute, comment: slurmd }
+    - { proto: tcp, ports: "60001-63000", src: compute, comment: srun-io/MPI }
+  slurm_login:
+    - { proto: tcp, ports: "60001-63000", src: compute, comment: srun-io }
+  monitoring:
+    - { proto: tcp, ports: "3000", src: mgmt, comment: grafana }
+    - { proto: tcp, ports: "9090", src: mgmt, comment: prometheus }
+    - { proto: tcp, ports: "9093", src: mgmt, comment: alertmanager }
+  ceph:
+    - { proto: tcp, ports: "3300,6789", src: ceph_public, comment: ceph-mon }
+    - { proto: tcp, ports: "6800-7300", src: ceph_public, comment: ceph-osd/mds/mgr public }
+    - { proto: tcp, ports: "6800-7300", src: ceph_cluster, comment: ceph-osd replication }
+    - { proto: tcp, ports: "8443,9283", src: mgmt, comment: ceph dashboard/mgr-prometheus }
+    - { proto: tcp, ports: "7480", src: ceph_public, comment: rgw s3 }
+    - { proto: tcp, ports: "7480", src: compute, comment: rgw s3 from compute }
+nft_node_exporter_port: 9100

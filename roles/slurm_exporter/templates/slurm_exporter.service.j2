@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Prometheus Slurm exporter
+After=slurmctld.service
+
+[Service]
+User=slurm
+ExecStart=/usr/local/bin/prometheus-slurm-exporter -listen-address=:{{ slurm_exporter_port }} -gpus-acct
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

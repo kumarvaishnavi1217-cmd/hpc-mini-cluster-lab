@@ -1,0 +1,15 @@
+---
+- name: Node_exporter on every Rocky node
+  hosts: rocky
+  roles:
+    - node_exporter
+
+- name: Slurm exporter on the controller
+  hosts: slurm_controller
+  roles:
+    - slurm_exporter
+
+- name: Prometheus / Alertmanager / Grafana
+  hosts: monitoring
+  roles:
+    - monitoring_stack

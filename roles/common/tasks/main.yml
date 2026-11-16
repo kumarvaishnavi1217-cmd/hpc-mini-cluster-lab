@@ -1,0 +1,98 @@
+---
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}.{{ cluster_domain }}"
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ timezone }}"
+
+- name: Enable CRB repository (needed by EPEL / munge / slurm deps)
+  ansible.builtin.command: dnf config-manager --set-enabled crb
+  register: common_crb
+  changed_when: false
+
+- name: Install EPEL
+  ansible.builtin.dnf:
+    name: epel-release
+    state: present
+
+- name: Install baseline packages
+  ansible.builtin.dnf:
+    name: "{{ common_packages }}"
+    state: present
+
+- name: Render /etc/hosts for all cluster nodes
+  ansible.builtin.template:
+    src: hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure chrony
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart chronyd
+
+- name: Enable chronyd
+  ansible.builtin.systemd_service:
+    name: chronyd
+    enabled: true
+    state: started
+
+- name: Create admin users
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    groups: wheel
+    append: true
+    shell: /bin/bash
+  loop: "{{ admin_users }}"
+
+- name: Authorise admin SSH keys
+  ansible.posix.authorized_key:
+    user: "{{ item.name }}"
+    key: "{{ item.ssh_key }}"
+  loop: "{{ admin_users }}"
+  when: item.ssh_key | length > 0
+
+- name: Passwordless sudo for wheel
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-wheel
+    content: "%wheel ALL=(ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: Harden sshd
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-hardening.conf
+    content: |
+      PermitRootLogin {{ common_sshd_permit_root_login }}
+      PasswordAuthentication {{ common_sshd_password_auth }}
+      KbdInteractiveAuthentication no
+      X11Forwarding no
+      MaxAuthTries 3
+      ClientAliveInterval 300
+    owner: root
+    group: root
+    mode: "0600"
+    validate: sshd -t -f %s
+  notify: Restart sshd
+
+- name: Disable firewalld (nftables role owns the ruleset)
+  ansible.builtin.systemd_service:
+    name: firewalld
+    enabled: false
+    state: stopped
+  failed_when: false
+
+- name: Keep SELinux enforcing
+  ansible.posix.selinux:
+    policy: targeted
+    state: enforcing

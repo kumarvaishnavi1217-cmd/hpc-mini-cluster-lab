@@ -1,0 +1,91 @@
+---
+- name: Check whether this node is already in a cluster
+  ansible.builtin.stat:
+    path: /etc/pve/corosync.conf
+  register: pve_corosync
+
+- name: Create cluster on the first node
+  ansible.builtin.command: >
+    pvecm create {{ pve_cluster_name }} --link0 {{ corosync_ip }}
+  when:
+    - inventory_hostname == pve_first_node
+    - not pve_corosync.stat.exists
+  changed_when: true
+
+- name: Join remaining nodes to the cluster (serially, quorum-safe)
+  ansible.builtin.command: >
+    pvecm add {{ hostvars[pve_first_node].corosync_ip }}
+    --link0 {{ corosync_ip }} --use_ssh 1
+  when:
+    - inventory_hostname != pve_first_node
+    - not pve_corosync.stat.exists
+  throttle: 1
+  changed_when: true
+
+- name: Wait for quorum
+  ansible.builtin.command: pvecm status
+  register: pve_status
+  until: "'Quorate:          Yes' in pve_status.stdout"
+  retries: 20
+  delay: 6
+  changed_when: false
+
+- name: Cluster-wide tasks (run once)
+  when: inventory_hostname == pve_first_node
+  block:
+    - name: Create HA group for the management plane
+      ansible.builtin.command: >
+        ha-manager groupadd {{ pve_ha_group }}
+        --nodes {{ groups['proxmox'] | join(',') }}
+      register: pve_ha_group_out
+      failed_when: pve_ha_group_out.rc != 0 and 'already exists' not in pve_ha_group_out.stderr
+      changed_when: pve_ha_group_out.rc == 0
+
+    - name: Register management-plane VMs as HA resources
+      ansible.builtin.command: >
+        ha-manager add vm:{{ item }} --group {{ pve_ha_group }}
+        --state started --max_restart 2 --max_relocate 2
+      loop: "{{ pve_ha_resources }}"
+      register: pve_ha_add
+      failed_when: pve_ha_add.rc != 0 and 'already defined' not in pve_ha_add.stderr
+      changed_when: pve_ha_add.rc == 0
+
+    - name: Attach Proxmox Backup Server datastore
+      ansible.builtin.command: >
+        pvesm add pbs {{ pbs_storage_id }}
+        --server {{ pbs_server }} --datastore {{ pbs_datastore }}
+        --username backup@pbs --password {{ pbs_password }}
+        --fingerprint {{ pbs_fingerprint }} --content backup
+      register: pve_pbs_add
+      failed_when: pve_pbs_add.rc != 0 and 'already defined' not in pve_pbs_add.stderr
+      changed_when: pve_pbs_add.rc == 0
+      no_log: true
+
+    - name: Schedule nightly backups of all lab VMs to PBS
+      ansible.builtin.command: >
+        pvesh create /cluster/backup --id lab-nightly
+        --schedule "{{ pbs_backup_schedule }}" --storage {{ pbs_storage_id }}
+        --all 1 --mode snapshot --prune-backups {{ pbs_keep }}
+        --notes-template "{{ '{{guestname}}' }}"
+      register: pve_backup_job
+      failed_when: pve_backup_job.rc != 0 and 'already exists' not in pve_backup_job.stderr
+      changed_when: pve_backup_job.rc == 0
+
+    - name: Replicate HA VMs' ZFS disks to the other nodes every 15 min (enables HA failover)
+      ansible.builtin.command: >
+        pvesr create-local-job {{ item.vmid }}-{{ item.idx }} {{ item.target }} --schedule "*/15"
+      loop: "{{ pve_replication_jobs }}"
+      loop_control:
+        label: "vm {{ item.vmid }} -> {{ item.target }}"
+      vars:
+        pve_replication_jobs: >-
+          {%- set jobs = [] -%}
+          {%- for h in groups['mgmt_plane'] -%}
+          {%- for n in groups['proxmox'] | reject('equalto', hostvars[h].pve_node) -%}
+          {%- set _ = jobs.append({'vmid': hostvars[h].vmid, 'idx': loop.index0, 'target': n}) -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {{ jobs }}
+      register: pve_repl
+      failed_when: pve_repl.rc != 0 and 'already exists' not in pve_repl.stderr
+      changed_when: pve_repl.rc == 0

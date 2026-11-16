@@ -1,0 +1,9 @@
+---
+# Step 3: clone management plane, Ceph and compute VMs via the Proxmox API
+- name: Provision Rocky Linux VMs from the golden image
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  roles:
+    - proxmox_vms

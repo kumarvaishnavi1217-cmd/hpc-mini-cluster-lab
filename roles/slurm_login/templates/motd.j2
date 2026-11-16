@@ -1,0 +1,8 @@
+
+  {{ cluster_name | upper }} HPC mini-cluster  --  {{ inventory_hostname }}
+  ------------------------------------------------------------
+  Partitions : {{ slurm_partitions | map(attribute='name') | join(', ') }}
+  /home      : CephFS (shared, replicated x3)
+  Containers : apptainer exec docker://rockylinux:9 ...
+  Help       : sinfo | squeue -u $USER | sshare -U | sacct
+

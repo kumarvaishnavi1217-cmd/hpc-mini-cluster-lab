@@ -1,0 +1,42 @@
+---
+- name: Install slurmd
+  ansible.builtin.dnf:
+    name: slurm-slurmd
+    state: present
+
+- name: NVIDIA driver on GPU nodes
+  when: inventory_hostname in groups['compute_gpu']
+  block:
+    - name: Add NVIDIA CUDA repository
+      ansible.builtin.get_url:
+        url: https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo
+        dest: /etc/yum.repos.d/cuda-rhel9.repo
+        mode: "0644"
+
+    - name: Install NVIDIA open kernel driver (DKMS)
+      ansible.builtin.dnf:
+        name: "@nvidia-driver:open-dkms"
+        state: present
+      notify: Reboot gpu node
+
+- name: Render gres.conf
+  ansible.builtin.template:
+    src: gres.conf.j2
+    dest: /etc/slurm/gres.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart slurmd
+
+- name: Enable slurmd
+  ansible.builtin.systemd_service:
+    name: slurmd
+    enabled: true
+    state: started
+
+- name: Resume node if it was left DOWN
+  ansible.builtin.command: scontrol update nodename={{ inventory_hostname }} state=resume
+  delegate_to: "{{ slurm_controller_host }}"
+  register: slurm_resume
+  failed_when: false
+  changed_when: slurm_resume.rc == 0

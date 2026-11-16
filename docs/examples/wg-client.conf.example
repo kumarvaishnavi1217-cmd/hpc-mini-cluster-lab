@@ -1,0 +1,10 @@
+[Interface]
+PrivateKey = <client private key>
+Address    = 10.200.0.10/32
+DNS        = 10.10.10.1
+
+[Peer]
+PublicKey  = <hub public key printed by playbooks/security.yml>
+Endpoint   = <public IP of login01>:51820
+AllowedIPs = 10.10.10.0/24, 10.10.20.0/24
+PersistentKeepalive = 25

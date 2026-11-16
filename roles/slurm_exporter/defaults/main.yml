@@ -1,0 +1,4 @@
+---
+slurm_exporter_repo: https://github.com/vpenso/prometheus-slurm-exporter.git
+slurm_exporter_version: "0.20"
+slurm_exporter_port: 9341

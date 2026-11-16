@@ -1,0 +1,7 @@
+---
+- name: Reconfigure slurm
+  ansible.builtin.command: scontrol reconfigure
+  delegate_to: "{{ slurm_controller_host }}"
+  run_once: true
+  changed_when: true
+  failed_when: false   # controller may not be up yet on first run

@@ -1,0 +1,13 @@
+---
+profile: production
+exclude_paths:
+  - collections/
+  - .github/
+  - .gitlab-ci.yml
+  - venv/
+  - .venv/
+mock_modules: []
+skip_list:
+  - var-naming[no-role-prefix]
+warn_list:
+  - experimental

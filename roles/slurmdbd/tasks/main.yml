@@ -1,0 +1,97 @@
+---
+- name: Install MariaDB and slurmdbd
+  ansible.builtin.dnf:
+    name: [mariadb-server, python3-PyMySQL, slurm-slurmdbd]
+    state: present
+
+- name: Tune InnoDB for slurmdbd
+  ansible.builtin.copy:
+    dest: /etc/my.cnf.d/slurmdbd.cnf
+    content: |
+      [mysqld]
+      innodb_buffer_pool_size=1024M
+      innodb_log_file_size=64M
+      innodb_lock_wait_timeout=900
+      bind-address=127.0.0.1
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart mariadb
+
+- name: Enable MariaDB
+  ansible.builtin.systemd_service:
+    name: mariadb
+    enabled: true
+    state: started
+
+- name: Create accounting database
+  ansible.mysql.mysql_db:
+    name: "{{ slurmdbd_db_name }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
+
+- name: Create slurmdbd DB user
+  ansible.mysql.mysql_user:
+    name: "{{ slurmdbd_db_user }}"
+    host: localhost
+    password: "{{ slurmdbd_db_password }}"
+    priv: "{{ slurmdbd_db_name }}.*:ALL"
+    login_unix_socket: /var/lib/mysql/mysql.sock
+  no_log: true
+
+- name: Render slurmdbd.conf
+  ansible.builtin.template:
+    src: slurmdbd.conf.j2
+    dest: /etc/slurm/slurmdbd.conf
+    owner: slurm
+    group: slurm
+    mode: "0600"
+  notify: Restart slurmdbd
+
+- name: Enable slurmdbd
+  ansible.builtin.systemd_service:
+    name: slurmdbd
+    enabled: true
+    state: started
+
+- name: Wait for slurmdbd port
+  ansible.builtin.wait_for:
+    port: 6819
+    timeout: 60
+
+- name: Register cluster in accounting
+  ansible.builtin.shell: |
+    [ -n "$(sacctmgr -n list cluster where name={{ cluster_name }} format=cluster)" ] && exit 0
+    sacctmgr -i add cluster {{ cluster_name }} && echo created
+  register: slurmdbd_cluster
+  changed_when: "'created' in slurmdbd_cluster.stdout"
+
+- name: Create QoS levels
+  ansible.builtin.shell: |
+    [ -n "$(sacctmgr -n list qos where name={{ item.name }} format=name)" ] || { sacctmgr -i add qos {{ item.name }}; echo created; }
+    sacctmgr -i modify qos {{ item.name }} set Priority={{ item.priority }} {{ item.extra }} >/dev/null
+  loop: "{{ slurm_qos }}"
+  register: slurmdbd_qos
+  changed_when: "'created' in slurmdbd_qos.stdout"
+
+- name: Create accounts with fair-share
+  ansible.builtin.shell: |
+    if [ -z "$(sacctmgr -n list account where name={{ item.name }} format=account)" ]; then
+      sacctmgr -i add account {{ item.name }} parent={{ item.parent }} \
+        cluster={{ cluster_name }} description="{{ item.description }}"
+      echo created
+    fi
+    sacctmgr -i modify account {{ item.name }} set fairshare={{ item.fairshare }} >/dev/null
+  loop: "{{ slurm_accounts }}"
+  register: slurmdbd_accounts
+  changed_when: "'created' in slurmdbd_accounts.stdout"
+
+- name: Create users and associations
+  ansible.builtin.shell: |
+    if [ -z "$(sacctmgr -n list user where name={{ item.name }} format=user)" ]; then
+      sacctmgr -i add user {{ item.name }} account={{ item.account }} defaultaccount={{ item.account }}
+      echo created
+    fi
+    sacctmgr -i modify user {{ item.name }} set qos={{ item.qos }} defaultqos=normal >/dev/null
+  loop: "{{ hpc_users }}"
+  register: slurmdbd_users
+  changed_when: "'created' in slurmdbd_users.stdout"

@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: hpc-mini-cluster-lab
+  description: "Ceph cluster via cephadm: MON/MGR/OSD, RBD pool, CephFS, RADOS Gateway"
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions: ["9"]
+dependencies: []

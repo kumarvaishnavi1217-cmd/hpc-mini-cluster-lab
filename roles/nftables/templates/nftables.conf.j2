@@ -1,0 +1,66 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+flush ruleset
+
+table inet filter {
+  set mgmt_net         { type ipv4_addr; flags interval; elements = { {{ networks.mgmt.cidr }}, {{ networks.wireguard.cidr }} } }
+  set compute_net      { type ipv4_addr; flags interval; elements = { {{ networks.compute.cidr }} } }
+  set ceph_public_net  { type ipv4_addr; flags interval; elements = { {{ networks.ceph_public.cidr }} } }
+  set ceph_cluster_net { type ipv4_addr; flags interval; elements = { {{ networks.ceph_cluster.cidr }} } }
+
+  chain input {
+    type filter hook input priority 0; policy drop;
+    ct state established,related accept
+    ct state invalid drop
+    iif lo accept
+    meta l4proto { icmp, ipv6-icmp } accept
+
+    # SSH only from mgmt + VPN
+    tcp dport 22 ip saddr @mgmt_net accept
+{% if inventory_hostname in groups['slurm_login'] %}
+    # Login nodes also accept SSH from anywhere routed to them (users), rate-limited
+    tcp dport 22 ct state new limit rate 10/minute accept
+{% endif %}
+{% if inventory_hostname in groups['wireguard_hub'] | default([]) %}
+    udp dport {{ wireguard_port | default(51820) }} accept
+    iifname "wg0" accept
+{% endif %}
+
+    # Prometheus scraping node_exporter
+    tcp dport {{ nft_node_exporter_port }} ip saddr @mgmt_net accept
+
+    # Role-specific services (nft_rules_by_group), each restricted to its source VLAN
+{% for group, rules in nft_rules_by_group.items() if inventory_hostname in groups[group] | default([]) %}
+{% for r in rules %}
+    {{ r.proto }} dport { {{ r.ports }} } ip saddr @{{ r.src }}_net accept comment "{{ r.comment }}"
+{% endfor %}
+{% endfor %}
+{% if inventory_hostname in groups['ceph_clients'] | default([]) %}
+    # CephFS clients: nothing inbound needed
+{% endif %}
+
+    limit rate 5/minute log prefix "nft-drop: " level info
+  }
+
+  chain forward {
+    type filter hook forward priority 0; policy drop;
+{% if inventory_hostname in groups['wireguard_hub'] | default([]) %}
+    # VPN clients may reach mgmt + compute networks only
+    iifname "wg0" ip daddr { {{ networks.mgmt.cidr }}, {{ networks.compute.cidr }} } accept
+    ct state established,related accept
+{% endif %}
+  }
+
+  chain output {
+    type filter hook output priority 0; policy accept;
+  }
+}
+
+{% if inventory_hostname in groups['wireguard_hub'] | default([]) %}
+table ip nat {
+  chain postrouting {
+    type nat hook postrouting priority 100;
+    ip saddr {{ networks.wireguard.cidr }} oifname != "wg0" masquerade
+  }
+}
+{% endif %}

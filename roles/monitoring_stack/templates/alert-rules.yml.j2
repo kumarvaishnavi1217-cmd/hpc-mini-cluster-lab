@@ -1,0 +1,70 @@
+# {{ ansible_managed }}
+groups:
+  - name: nodes
+    rules:
+      - alert: NodeDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ '{{ $labels.instance }}' }} unreachable"
+      - alert: RootDiskAlmostFull
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.10
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ '{{ $labels.instance }}' }} root fs < 10% free"
+      - alert: HighMemoryPressure
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.95
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ '{{ $labels.instance }}' }} memory > 95%"
+
+  - name: slurm
+    rules:
+      - alert: SlurmExporterDown
+        expr: up{job="slurm"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Slurm exporter / slurmctld not responding"
+      - alert: SlurmNodesDown
+        expr: slurm_nodes_down > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ '{{ $value }}' }} Slurm node(s) DOWN"
+      - alert: SlurmNodesDrained
+        expr: slurm_nodes_drain > 0
+        for: 30m
+        labels: { severity: info }
+        annotations:
+          summary: "{{ '{{ $value }}' }} Slurm node(s) drained > 30m"
+      - alert: SlurmQueueBacklog
+        expr: slurm_queue_pending > 50
+        for: 30m
+        labels: { severity: info }
+        annotations:
+          summary: "More than 50 jobs pending for 30m"
+
+  - name: ceph
+    rules:
+      - alert: CephHealthError
+        expr: ceph_health_status == 2
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Ceph cluster HEALTH_ERR"
+      - alert: CephHealthWarn
+        expr: ceph_health_status == 1
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Ceph cluster HEALTH_WARN for 15m"
+      - alert: CephOSDDown
+        expr: ceph_osd_up == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Ceph OSD {{ '{{ $labels.ceph_daemon }}' }} is down"

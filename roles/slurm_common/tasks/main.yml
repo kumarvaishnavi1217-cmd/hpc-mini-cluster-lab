@@ -1,0 +1,51 @@
+---
+- name: Create slurm group
+  ansible.builtin.group:
+    name: slurm
+    gid: "{{ slurm_uid }}"
+    system: true
+
+- name: Create slurm user with fixed UID (must match on every node)
+  ansible.builtin.user:
+    name: slurm
+    uid: "{{ slurm_uid }}"
+    group: slurm
+    home: /var/lib/slurm
+    shell: /sbin/nologin
+    system: true
+
+- name: Install Slurm base packages (EPEL)
+  ansible.builtin.dnf:
+    name: "{{ slurm_packages }}"
+    state: present
+
+- name: Create Slurm state / log directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: slurm
+    group: slurm
+    mode: "0755"
+  loop:
+    - /var/spool/slurm
+    - /var/spool/slurm/ctld
+    - /var/spool/slurm/d
+    - /var/log/slurm
+
+- name: Render slurm.conf and cgroup.conf (identical on every node)
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ slurm_conf_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [slurm.conf, cgroup.conf]
+  notify: Reconfigure slurm
+
+- name: Create cluster user accounts (consistent UIDs; homes live on CephFS)
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    uid: "{{ item.uid }}"
+    shell: /bin/bash
+    create_home: "{{ inventory_hostname in groups['slurm_login'] }}"
+  loop: "{{ hpc_users }}"

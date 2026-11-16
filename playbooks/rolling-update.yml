@@ -1,0 +1,56 @@
+---
+# Staged, job-safe OS/package roll-out across compute nodes:
+#   canary (1 node) -> 50% -> rest. Any failure stops the roll-out.
+# Each node is drained in Slurm, waits for running jobs, is patched/rebooted,
+# re-configured by the slurm roles, then resumed.
+- name: Rolling update of compute nodes
+  hosts: compute
+  serial: [1, "50%", "100%"]
+  max_fail_percentage: 0
+  vars:
+    drain_reason: "ansible rolling-update {{ now(utc=true, fmt='%Y-%m-%dT%H:%M') }}"
+  pre_tasks:
+    - name: Drain node in Slurm
+      ansible.builtin.command: >
+        scontrol update nodename={{ inventory_hostname }} state=drain reason="{{ drain_reason }}"
+      delegate_to: "{{ slurm_controller_host }}"
+      changed_when: true
+
+    - name: Wait until no jobs are running on the node
+      ansible.builtin.command: squeue -h -w {{ inventory_hostname }} -t RUNNING,COMPLETING
+      delegate_to: "{{ slurm_controller_host }}"
+      register: rolling_jobs
+      until: rolling_jobs.stdout | length == 0
+      retries: 240        # up to 2h
+      delay: 30
+      changed_when: false
+
+  tasks:
+    - name: Apply OS updates
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest   # noqa: package-latest
+        update_only: true
+      register: rolling_dnf
+
+    - name: Reboot if packages changed
+      ansible.builtin.reboot:
+        reboot_timeout: 900
+      when: rolling_dnf.changed  # noqa: no-handler -- must reboot before re-applying role in this batch
+
+    - name: Re-apply Slurm compute role
+      ansible.builtin.include_role:
+        name: slurm_compute
+
+  post_tasks:
+    - name: Health check - slurmd responding
+      ansible.builtin.command: scontrol show node {{ inventory_hostname }}
+      delegate_to: "{{ slurm_controller_host }}"
+      register: rolling_node
+      changed_when: false
+      failed_when: "'NOT_RESPONDING' in rolling_node.stdout"
+
+    - name: Resume node
+      ansible.builtin.command: scontrol update nodename={{ inventory_hostname }} state=resume
+      delegate_to: "{{ slurm_controller_host }}"
+      changed_when: true

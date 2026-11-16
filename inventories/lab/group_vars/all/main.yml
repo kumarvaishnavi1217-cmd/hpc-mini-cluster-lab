@@ -1,0 +1,42 @@
+---
+cluster_name: minihpc
+cluster_domain: lab.internal
+timezone: Europe/Berlin
+ntp_servers: [0.pool.ntp.org, 1.pool.ntp.org]
+
+admin_users:
+  - name: ansible
+    ssh_key: "{{ lookup('ansible.builtin.file', '~/.ssh/id_ed25519.pub', errors='ignore') | default('', true) }}"
+
+# --- Networks ------------------------------------------------------------
+networks:
+  mgmt:          { vlan: 10, cidr: 10.10.10.0/24, gateway: 10.10.10.1 }
+  compute:       { vlan: 20, cidr: 10.10.20.0/24 }
+  ceph_public:   { vlan: 30, cidr: 10.10.30.0/24 }
+  ceph_cluster:  { vlan: 31, cidr: 10.10.31.0/24 }
+  corosync:      { vlan: 50, cidr: 10.10.50.0/24 }
+  wireguard:     { cidr: 10.200.0.0/24 }
+dns_servers: [10.10.10.1]
+
+# --- Slurm ---------------------------------------------------------------
+slurm_controller_host: "{{ groups['slurm_controller'][0] }}"
+slurm_controller_ip: "{{ hostvars[slurm_controller_host].compute_ip }}"
+slurm_uid: 990
+munge_uid: 991
+
+# Cluster users: Linux account (same UID everywhere, home on CephFS)
+# + Slurm association (account -> fair-share, allowed QoS)
+hpc_users:
+  - { name: alice, uid: 2001, account: physics,   qos: "normal,high,gpu" }
+  - { name: bob,   uid: 2002, account: chemistry, qos: "normal,gpu" }
+  - { name: carol, uid: 2003, account: students,  qos: "normal" }
+
+# --- Ceph ----------------------------------------------------------------
+ceph_release: squid
+ceph_bootstrap_host: "{{ groups['ceph'][0] }}"
+cephfs_name: cephfs
+cephfs_home_mount: /home
+
+# --- Monitoring ----------------------------------------------------------
+monitoring_host: "{{ groups['monitoring'][0] }}"
+node_exporter_version: "1.8.2"

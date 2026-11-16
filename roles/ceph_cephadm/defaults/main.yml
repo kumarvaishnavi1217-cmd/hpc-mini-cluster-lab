@@ -1,0 +1,11 @@
+---
+cephadm_url: "https://download.ceph.com/rpm-{{ ceph_release }}/el9/noarch/cephadm"
+ceph_dashboard_user: admin
+ceph_rbd_pool: rbd
+ceph_pool_size: 3
+ceph_pool_min_size: 2
+ceph_rgw_realm: lab
+ceph_rgw_zone: lab-zone
+ceph_rgw_port: 7480
+ceph_rgw_s3_user: hpc-s3
+ceph_client_name: client.hpc

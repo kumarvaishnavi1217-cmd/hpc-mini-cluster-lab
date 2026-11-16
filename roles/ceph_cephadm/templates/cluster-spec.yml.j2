@@ -1,0 +1,42 @@
+# {{ ansible_managed }}
+{% for h in groups['ceph'] %}
+---
+service_type: host
+hostname: {{ h }}
+addr: {{ hostvars[h].ansible_host }}   # cephadm SSH over mgmt VLAN; daemons bind to public_network
+labels: [_admin, mon, mgr, osd, mds, rgw]
+{% endfor %}
+---
+service_type: mon
+placement:
+  label: mon
+  count: 3
+---
+service_type: mgr
+placement:
+  label: mgr
+  count: 2
+---
+service_type: osd
+service_id: all-data-disks
+placement:
+  label: osd
+spec:
+  data_devices:
+    all: true
+  filter_logic: AND
+  objectstore: bluestore
+---
+service_type: mds
+service_id: {{ cephfs_name }}
+placement:
+  label: mds
+  count: 2
+---
+service_type: rgw
+service_id: {{ ceph_rgw_realm }}
+placement:
+  label: rgw
+  count: 2
+spec:
+  rgw_frontend_port: {{ ceph_rgw_port }}

@@ -1,0 +1,10 @@
+---
+- name: Default-deny nftables on every Rocky node
+  hosts: rocky
+  roles:
+    - nftables
+
+- name: WireGuard VPN hub
+  hosts: wireguard_hub
+  roles:
+    - wireguard

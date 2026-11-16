@@ -1,0 +1,96 @@
+---
+# Runs from localhost against the Proxmox API; loops over every Rocky VM in inventory.
+- name: Clone VMs from golden template
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_password: "{{ proxmox_api_password }}"
+    node: "{{ hostvars[item].pve_node }}"
+    clone: "{{ pve_template_name }}"
+    vmid: "{{ pve_template_vmid }}"
+    newid: "{{ hostvars[item].vmid }}"
+    name: "{{ item }}"
+    full: true
+    storage: "{{ pve_storage }}"
+    timeout: 600
+  loop: "{{ groups['rocky'] }}"
+  no_log: true
+
+- name: Size CPU / RAM and attach VLAN-tagged NICs
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_password: "{{ proxmox_api_password }}"
+    node: "{{ hostvars[item].pve_node }}"
+    vmid: "{{ hostvars[item].vmid }}"
+    update: true
+    cores: "{{ hostvars[item].vm_cores | default(2) }}"
+    memory: "{{ hostvars[item].vm_memory_mb | default(4096) }}"
+    net: "{{ _nets | items2dict }}"
+    ipconfig: "{{ _ipcfg | items2dict }}"
+    nameservers: "{{ dns_servers }}"
+    searchdomains: "{{ cluster_domain }}"
+  vars:
+    _hv: "{{ hostvars[item] }}"
+    _nets: >-
+      {{ [{'key': 'net0', 'value': 'virtio,bridge=' ~ pve_vm_bridge_mgmt}]
+         + ([{'key': 'net1', 'value': 'virtio,bridge=' ~ pve_vm_bridge_trunk ~ ',tag=20,mtu=9000'}] if _hv.compute_ip is defined else [])
+         + ([{'key': 'net2', 'value': 'virtio,bridge=' ~ pve_vm_bridge_trunk ~ ',tag=30,mtu=9000'}] if _hv.ceph_public_ip is defined else [])
+         + ([{'key': 'net3', 'value': 'virtio,bridge=' ~ pve_vm_bridge_trunk ~ ',tag=31,mtu=9000'}] if _hv.ceph_cluster_ip is defined else []) }}
+    _ipcfg: >-
+      {{ [{'key': 'ipconfig0', 'value': 'ip=' ~ _hv.ansible_host ~ '/24,gw=' ~ networks.mgmt.gateway}]
+         + ([{'key': 'ipconfig1', 'value': 'ip=' ~ _hv.compute_ip ~ '/24'}] if _hv.compute_ip is defined else [])
+         + ([{'key': 'ipconfig2', 'value': 'ip=' ~ _hv.ceph_public_ip ~ '/24'}] if _hv.ceph_public_ip is defined else [])
+         + ([{'key': 'ipconfig3', 'value': 'ip=' ~ _hv.ceph_cluster_ip ~ '/24'}] if _hv.ceph_cluster_ip is defined else []) }}
+  loop: "{{ groups['rocky'] }}"
+  no_log: true
+
+- name: Grow root disk
+  community.proxmox.proxmox_disk:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_password: "{{ proxmox_api_password }}"
+    vmid: "{{ hostvars[item].vmid }}"
+    disk: scsi0
+    size: "{{ pve_vm_disk_size }}"
+    state: resized
+  loop: "{{ groups['rocky'] }}"
+  no_log: true
+
+- name: Attach OSD data disks to Ceph VMs
+  community.proxmox.proxmox_disk:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_password: "{{ proxmox_api_password }}"
+    vmid: "{{ hostvars[item.0].vmid }}"
+    disk: "{{ item.1 }}"
+    storage: "{{ pve_storage }}"
+    size: "{{ hostvars[item.0].ceph_osd_disk_size_gb }}"
+    state: present
+  loop: "{{ groups['ceph'] | product(hostvars[groups['ceph'][0]].ceph_osd_disks) | list }}"
+  no_log: true
+
+- name: PCI passthrough for GPU nodes
+  ansible.builtin.command: >
+    qm set {{ hostvars[item].vmid }} --hostpci0 {{ hostvars[item].pci_passthrough }},pcie=1
+  delegate_to: "{{ hostvars[item].pve_node }}"
+  loop: "{{ groups['compute_gpu'] }}"
+  changed_when: true
+
+- name: Start VMs
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_password: "{{ proxmox_api_password }}"
+    vmid: "{{ hostvars[item].vmid }}"
+    node: "{{ hostvars[item].pve_node }}"
+    state: started
+  loop: "{{ groups['rocky'] }}"
+  no_log: true
+
+- name: Wait for SSH on every VM
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[item].ansible_host }}"
+    port: 22
+    timeout: 300
+  loop: "{{ groups['rocky'] }}"

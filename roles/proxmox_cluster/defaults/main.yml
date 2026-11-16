@@ -1,0 +1,2 @@
+---
+pve_first_node: "{{ groups['proxmox'][0] }}"

@@ -1,0 +1,16 @@
+---
+common_packages:
+  - chrony
+  - vim-enhanced
+  - git
+  - jq
+  - htop
+  - tmux
+  - rsync
+  - bash-completion
+  - python3-pip
+  - nfs-utils
+  - tar
+  - lvm2
+common_sshd_permit_root_login: "no"
+common_sshd_password_auth: "no"

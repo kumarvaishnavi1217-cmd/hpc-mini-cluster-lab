@@ -1,0 +1,75 @@
+---
+# GitLab CI: lint on every push/MR; staged roll-out (canary -> full) from main.
+# Deploy jobs run on a self-hosted runner inside the lab (tag: hpc-lab) that has
+# SSH access to the mgmt VLAN. Vault password comes from a masked CI variable.
+stages: [lint, syntax, deploy-canary, deploy-full, verify]
+
+default:
+  image: python:3.12-slim
+  before_script:
+    - unset ANSIBLE_VAULT_PASSWORD_FILE
+    - pip install --quiet ansible-core ansible-lint yamllint
+    - ansible-galaxy collection install -r requirements.yml -p ./collections
+
+variables:
+  ANSIBLE_FORCE_COLOR: "1"
+  ANSIBLE_VAULT_PASSWORD_FILE: .vault_pass   # only written by deploy jobs
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths: [.cache/pip, collections/]
+
+yamllint:
+  stage: lint
+  script: [yamllint .]
+
+ansible-lint:
+  stage: lint
+  script: [ansible-lint --profile production]
+
+syntax-check:
+  stage: syntax
+  script:
+    - for p in playbooks/*.yml; do ansible-playbook --syntax-check "$p"; done
+
+.deploy:
+  tags: [hpc-lab]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  before_script:
+    - echo "$ANSIBLE_VAULT_PASSWORD" > .vault_pass && chmod 600 .vault_pass
+    - ansible-galaxy collection install -r requirements.yml -p ./collections
+  after_script:
+    - rm -f .vault_pass
+
+check-diff:
+  extends: .deploy
+  stage: deploy-canary
+  script:
+    - ansible-playbook playbooks/site.yml --check --diff --limit canary
+
+deploy-canary:
+  extends: .deploy
+  stage: deploy-canary
+  needs: [check-diff]
+  when: manual
+  allow_failure: false
+  environment: { name: lab/canary }
+  script:
+    - ansible-playbook playbooks/site.yml --limit canary
+
+deploy-full:
+  extends: .deploy
+  stage: deploy-full
+  needs: [deploy-canary]
+  when: manual
+  environment: { name: lab/full }
+  script:
+    - ansible-playbook playbooks/site.yml
+
+verify:
+  extends: .deploy
+  stage: verify
+  needs: [deploy-full]
+  script:
+    - ansible-playbook playbooks/verify.yml

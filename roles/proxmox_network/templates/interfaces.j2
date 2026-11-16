@@ -1,0 +1,50 @@
+# {{ ansible_managed }}
+# eno1          -> vmbr0  : management (untagged, VLAN 10 on switch access port)
+# enp1s0f0/f1   -> bond0  : 802.3ad LACP, carries tagged VLANs 20/30/31/50
+#                  vmbr1  : VLAN-aware bridge; VMs get tagged NICs on it
+auto lo
+iface lo inet loopback
+
+iface {{ pve_mgmt_nic }} inet manual
+
+auto vmbr0
+iface vmbr0 inet static
+    address {{ ansible_host }}/24
+    gateway {{ networks.mgmt.gateway }}
+    bridge-ports {{ pve_mgmt_nic }}
+    bridge-stp off
+    bridge-fd 0
+
+{% for nic in pve_bond_slaves %}
+iface {{ nic }} inet manual
+    mtu 9000
+{% endfor %}
+
+auto bond0
+iface bond0 inet manual
+    bond-slaves {{ pve_bond_slaves | join(' ') }}
+    bond-mode 802.3ad
+    bond-miimon 100
+    bond-lacp-rate fast
+    bond-xmit-hash-policy layer3+4
+    mtu 9000
+
+auto vmbr1
+iface vmbr1 inet manual
+    bridge-ports bond0
+    bridge-stp off
+    bridge-fd 0
+    bridge-vlan-aware yes
+    bridge-vids 20 30 31 50
+    mtu 9000
+
+# Corosync ring on its own VLAN so storage traffic cannot starve it
+auto vmbr1.{{ networks.corosync.vlan }}
+iface vmbr1.{{ networks.corosync.vlan }} inet static
+    address {{ corosync_ip }}/24
+
+# Hypervisor presence on the Ceph public VLAN (RBD/CephFS access from PVE)
+auto vmbr1.{{ networks.ceph_public.vlan }}
+iface vmbr1.{{ networks.ceph_public.vlan }} inet static
+    address {{ networks.ceph_public.cidr.split('.')[:3] | join('.') }}.{{ ansible_host.split('.')[-1] }}/24
+    mtu 9000

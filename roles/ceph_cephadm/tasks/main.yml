@@ -1,0 +1,128 @@
+---
+- name: Install container runtime and lvm2 on all Ceph nodes
+  ansible.builtin.dnf:
+    name: [podman, lvm2, python3]
+    state: present
+
+- name: Install cephadm on the bootstrap node
+  when: inventory_hostname == ceph_bootstrap_host
+  block:
+    - name: Download cephadm
+      ansible.builtin.get_url:
+        url: "{{ cephadm_url }}"
+        dest: /usr/local/sbin/cephadm
+        mode: "0755"
+
+    - name: Add Ceph repo and install ceph-common via cephadm
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - /usr/local/sbin/cephadm add-repo --release {{ ceph_release }}
+        - /usr/local/sbin/cephadm install ceph-common
+      changed_when: true
+
+- name: Bootstrap the cluster
+  when: inventory_hostname == ceph_bootstrap_host
+  ansible.builtin.command: >
+    /usr/local/sbin/cephadm bootstrap
+    --mon-ip {{ ceph_public_ip }}
+    --cluster-network {{ networks.ceph_cluster.cidr }}
+    --initial-dashboard-user {{ ceph_dashboard_user }}
+    --dashboard-password-noupdate
+    --allow-fqdn-hostname
+  args:
+    creates: /etc/ceph/ceph.conf
+
+- name: Fetch cephadm SSH public key
+  when: inventory_hostname == ceph_bootstrap_host
+  ansible.builtin.slurp:
+    src: /etc/ceph/ceph.pub
+  register: ceph_pub
+
+- name: Authorise cephadm key on every Ceph host
+  ansible.posix.authorized_key:
+    user: root
+    key: "{{ hostvars[ceph_bootstrap_host].ceph_pub.content | b64decode }}"
+
+- name: Allow root key-only login from bootstrap host for cephadm orchestration
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/20-cephadm.conf
+    content: |
+      Match Address {{ hostvars[ceph_bootstrap_host].ansible_host }},{{ hostvars[ceph_bootstrap_host].ceph_public_ip }}
+          PermitRootLogin prohibit-password
+    owner: root
+    group: root
+    mode: "0600"
+  register: ceph_sshd
+
+- name: Restart sshd if cephadm match block changed
+  ansible.builtin.systemd_service:
+    name: sshd
+    state: restarted
+  when: ceph_sshd.changed  # noqa: no-handler
+
+- name: Orchestration (bootstrap node only)
+  when: inventory_hostname == ceph_bootstrap_host
+  block:
+    - name: Render service spec (hosts, mons, mgrs, OSDs, MDS, RGW)
+      ansible.builtin.template:
+        src: cluster-spec.yml.j2
+        dest: /root/cluster-spec.yml
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Apply service spec
+      ansible.builtin.command: ceph orch apply -i /root/cluster-spec.yml
+      changed_when: true
+
+    - name: Wait for all OSDs to come up
+      ansible.builtin.command: ceph osd stat -f json
+      register: ceph_osd_stat
+      until: >-
+        (ceph_osd_stat.stdout | from_json).num_up_osds | int ==
+        (groups['ceph'] | length) * (ceph_osd_disks | length)
+      retries: 60
+      delay: 10
+      changed_when: false
+
+    - name: Create replicated RBD pool
+      ansible.builtin.shell: |
+        set -e
+        ceph osd pool get {{ ceph_rbd_pool }} size >/dev/null 2>&1 && exit 0
+        ceph osd pool create {{ ceph_rbd_pool }}
+        ceph osd pool set {{ ceph_rbd_pool }} size {{ ceph_pool_size }}
+        ceph osd pool set {{ ceph_rbd_pool }} min_size {{ ceph_pool_min_size }}
+        rbd pool init {{ ceph_rbd_pool }}
+        echo created
+      register: ceph_rbd
+      changed_when: "'created' in ceph_rbd.stdout"
+
+    - name: Create CephFS volume (shared /home)
+      ansible.builtin.shell: |
+        set -e
+        ceph fs get {{ cephfs_name }} >/dev/null 2>&1 && exit 0
+        ceph fs volume create {{ cephfs_name }}
+        echo created
+      register: ceph_fs
+      changed_when: "'created' in ceph_fs.stdout"
+
+    - name: Create cephx client for HPC nodes (CephFS rw + RBD)
+      ansible.builtin.command: >
+        ceph fs authorize {{ cephfs_name }} {{ ceph_client_name }} / rw
+      register: ceph_client_key
+      changed_when: false
+
+    - name: Create S3 user on the RADOS Gateway
+      ansible.builtin.shell: |
+        set -e
+        radosgw-admin user info --uid={{ ceph_rgw_s3_user }} >/dev/null 2>&1 && exit 0
+        radosgw-admin user create --uid={{ ceph_rgw_s3_user }} --display-name="HPC S3 user" \
+          --access-key={{ rgw_s3_access_key }} --secret-key={{ rgw_s3_secret_key }}
+        echo created
+      register: ceph_rgw_user
+      changed_when: "'created' in ceph_rgw_user.stdout"
+      no_log: true
+
+    - name: Enable mgr prometheus module (scraped by monitoring stack)
+      ansible.builtin.command: ceph mgr module enable prometheus
+      changed_when: false

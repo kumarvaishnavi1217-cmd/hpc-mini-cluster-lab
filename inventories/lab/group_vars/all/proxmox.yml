@@ -1,0 +1,7 @@
+---
+# Shared Proxmox settings: needed by proxmox hosts AND by localhost (API-driven VM provisioning)
+pve_api_host: "{{ hostvars[groups['proxmox'][0]].ansible_host }}"
+pve_api_user: root@pam
+pve_storage: local-zfs   # ZFS so HA VMs can use storage replication (pvesr)
+pve_template_vmid: 9000
+pve_template_name: rocky9-golden

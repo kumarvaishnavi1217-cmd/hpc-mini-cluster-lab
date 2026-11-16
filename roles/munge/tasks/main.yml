@@ -1,0 +1,42 @@
+---
+- name: Create munge group with fixed GID
+  ansible.builtin.group:
+    name: munge
+    gid: "{{ munge_uid }}"
+    system: true
+
+- name: Create munge user with fixed UID (must match on every node)
+  ansible.builtin.user:
+    name: munge
+    uid: "{{ munge_uid }}"
+    group: munge
+    home: /var/lib/munge
+    shell: /sbin/nologin
+    system: true
+    create_home: false
+
+- name: Install munge
+  ansible.builtin.dnf:
+    name: [munge, munge-libs]
+    state: present
+
+- name: Fail early if no munge key is vaulted
+  ansible.builtin.assert:
+    that: munge_key_b64 | length > 0
+    fail_msg: "Set vault_munge_key_b64 in inventories/<env>/group_vars/all/vault.yml"
+
+- name: Install shared munge key
+  ansible.builtin.copy:
+    dest: /etc/munge/munge.key
+    content: "{{ munge_key_b64 | b64decode }}"
+    owner: munge
+    group: munge
+    mode: "0400"
+  no_log: true
+  notify: Restart munge
+
+- name: Enable munge
+  ansible.builtin.systemd_service:
+    name: munge
+    enabled: true
+    state: started

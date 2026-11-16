@@ -1,0 +1,64 @@
+---
+- name: Install wireguard-tools
+  ansible.builtin.dnf:
+    name: wireguard-tools
+    state: present
+
+- name: Enable IPv4 forwarding for VPN clients
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/90-wireguard.conf
+    reload: true
+
+- name: Generate hub private key if none provided in vault
+  ansible.builtin.shell: |
+    set -o pipefail
+    umask 077
+    wg genkey > /etc/wireguard/hub.key
+  args:
+    creates: /etc/wireguard/hub.key
+    executable: /bin/bash
+  when: wireguard_hub_private_key | length == 0
+
+- name: Write vault-provided hub key
+  ansible.builtin.copy:
+    dest: /etc/wireguard/hub.key
+    content: "{{ wireguard_hub_private_key }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  when: wireguard_hub_private_key | length > 0
+  no_log: true
+
+- name: Read hub private key
+  ansible.builtin.slurp:
+    src: /etc/wireguard/hub.key
+  register: wg_hub_key
+  no_log: true
+
+- name: Render wg0.conf
+  ansible.builtin.template:
+    src: wg0.conf.j2
+    dest: /etc/wireguard/wg0.conf
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart wireguard
+
+- name: Enable wg-quick@wg0
+  ansible.builtin.systemd_service:
+    name: wg-quick@wg0
+    enabled: true
+    state: started
+
+- name: Show hub public key (paste into client configs)
+  ansible.builtin.command: wg pubkey
+  args:
+    stdin: "{{ wg_hub_key.content | b64decode | trim }}"
+  register: wg_pub
+  changed_when: false
+
+- name: Hub public key
+  ansible.builtin.debug:
+    msg: "WireGuard hub public key: {{ wg_pub.stdout }}"

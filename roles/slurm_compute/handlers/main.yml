@@ -1,0 +1,9 @@
+---
+- name: Restart slurmd
+  ansible.builtin.systemd_service:
+    name: slurmd
+    state: restarted
+
+- name: Reboot gpu node
+  ansible.builtin.reboot:
+    reboot_timeout: 900

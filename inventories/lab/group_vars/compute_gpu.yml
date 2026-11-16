@@ -1,0 +1,3 @@
+---
+slurm_gres:
+  - { name: gpu, type: rtx4000, file: /dev/nvidia0, count: 1 }

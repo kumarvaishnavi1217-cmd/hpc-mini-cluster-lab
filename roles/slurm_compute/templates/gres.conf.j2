@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+{% for g in slurm_gres | default([]) %}
+NodeName={{ inventory_hostname }} Name={{ g.name }} Type={{ g.type }} File={{ g.file }}
+{% endfor %}

@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: hpc-mini-cluster-lab
+  description: MariaDB + slurmdbd accounting, accounts, QoS and fair-share shares
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions: ["9"]
+dependencies: [{ role: slurm_common }]

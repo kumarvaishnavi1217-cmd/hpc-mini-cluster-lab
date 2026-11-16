@@ -1,0 +1,6 @@
+---
+# Step 2: build the Rocky Linux 9 cloud-init golden template (once)
+- name: Build golden image on the first hypervisor
+  hosts: proxmox[0]
+  roles:
+    - proxmox_template

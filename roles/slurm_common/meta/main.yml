@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: hpc-mini-cluster-lab
+  description: Slurm packages, users and shared slurm.conf/cgroup.conf
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions: ["9"]
+dependencies: [{ role: munge }]

@@ -1,0 +1,12 @@
+---
+# Step 4: configure the full stack on all Rocky VMs (idempotent; safe to re-run)
+- name: Baseline
+  import_playbook: common.yml
+- name: Firewall and VPN
+  import_playbook: security.yml
+- name: Ceph storage
+  import_playbook: ceph.yml
+- name: Slurm
+  import_playbook: slurm.yml
+- name: Monitoring
+  import_playbook: monitoring.yml

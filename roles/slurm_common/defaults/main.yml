@@ -1,0 +1,27 @@
+---
+slurm_packages: [slurm, slurm-perlapi, slurm-contribs, pmix]
+slurm_conf_dir: /etc/slurm
+
+slurm_partitions:
+  - name: debug
+    nodes_group: compute_cpu
+    default: true
+    max_time: "00:30:00"
+    extra: "PriorityTier=10"
+  - name: batch
+    nodes_group: compute_cpu
+    max_time: "2-00:00:00"
+    extra: "OverSubscribe=NO"
+  - name: gpu
+    nodes_group: compute_gpu
+    max_time: "1-00:00:00"
+    extra: "AllowQos=gpu,normal"
+
+# Multifactor priority: fair-share dominates, age breaks ties
+slurm_priority:
+  decay_half_life: "7-0"
+  weight_fairshare: 100000
+  weight_age: 1000
+  weight_qos: 10000
+  weight_jobsize: 500
+  max_age: "7-0"

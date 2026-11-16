@@ -1,0 +1,13 @@
+---
+- name: Install user tooling (compilers, MPI, modules)
+  ansible.builtin.dnf:
+    name: [gcc, gcc-c++, gcc-gfortran, make, openmpi, openmpi-devel, Lmod, python3-devel]
+    state: present
+
+- name: Login MOTD
+  ansible.builtin.template:
+    src: motd.j2
+    dest: /etc/motd
+    owner: root
+    group: root
+    mode: "0644"

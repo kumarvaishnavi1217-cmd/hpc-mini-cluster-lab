@@ -1,0 +1,12 @@
+---
+# Step 1: hypervisor networking (LACP bond, VLAN-aware bridge), cluster, HA, PBS
+- name: Configure Proxmox VE hypervisors
+  hosts: proxmox
+  serial: 1            # one hypervisor at a time: never lose quorum
+  roles:
+    - proxmox_network
+
+- name: Form Proxmox cluster, HA group, replication and PBS backups
+  hosts: proxmox
+  roles:
+    - proxmox_cluster

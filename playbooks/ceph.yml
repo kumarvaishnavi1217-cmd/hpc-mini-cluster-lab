@@ -1,0 +1,10 @@
+---
+- name: Deploy Ceph with cephadm (MON/MGR/OSD, RBD, CephFS, RGW)
+  hosts: ceph
+  roles:
+    - ceph_cephadm
+
+- name: Mount CephFS as shared /home on HPC nodes
+  hosts: ceph_clients
+  roles:
+    - ceph_client

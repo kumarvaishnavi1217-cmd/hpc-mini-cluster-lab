@@ -1,0 +1,98 @@
+---
+- name: Install Podman
+  ansible.builtin.dnf:
+    name: [podman, container-selinux]
+    state: present
+
+- name: Create directory layout
+  ansible.builtin.file:
+    path: "{{ monitoring_base }}/{{ item.path }}"
+    state: directory
+    owner: "{{ item.uid | default(omit) }}"
+    group: "{{ item.uid | default(omit) }}"
+    mode: "0755"
+  loop:
+    - { path: prometheus }
+    - { path: prometheus/data, uid: 65534 }
+    - { path: alertmanager }
+    - { path: grafana/provisioning/datasources }
+    - { path: grafana/provisioning/dashboards }
+    - { path: grafana/dashboards }
+    - { path: grafana/data, uid: 472 }
+
+- name: Render Prometheus / Alertmanager / Grafana configs
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ monitoring_base }}/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: prometheus.yml.j2, dest: prometheus/prometheus.yml }
+    - { src: alert-rules.yml.j2, dest: prometheus/alert-rules.yml }
+    - { src: alertmanager.yml.j2, dest: alertmanager/alertmanager.yml }
+    - { src: grafana-datasource.yml.j2, dest: grafana/provisioning/datasources/prometheus.yml }
+    - { src: grafana-dashboards.yml.j2, dest: grafana/provisioning/dashboards/lab.yml }
+  notify: Reload prometheus
+
+- name: Copy Grafana dashboards
+  ansible.builtin.copy:
+    src: dashboards/
+    dest: "{{ monitoring_base }}/grafana/dashboards/"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Run Prometheus
+  containers.podman.podman_container:
+    name: prometheus
+    image: "{{ prometheus_image }}"
+    network: host
+    restart_policy: always
+    volumes:
+      - "{{ monitoring_base }}/prometheus:/etc/prometheus:Z,ro"
+      - "{{ monitoring_base }}/prometheus/data:/prometheus:Z"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time={{ prometheus_retention }}
+      - --web.enable-lifecycle
+
+- name: Run Alertmanager
+  containers.podman.podman_container:
+    name: alertmanager
+    image: "{{ alertmanager_image }}"
+    network: host
+    restart_policy: always
+    volumes:
+      - "{{ monitoring_base }}/alertmanager:/etc/alertmanager:Z,ro"
+
+- name: Run Grafana
+  containers.podman.podman_container:
+    name: grafana
+    image: "{{ grafana_image }}"
+    network: host
+    restart_policy: always
+    env:
+      GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - "{{ monitoring_base }}/grafana/provisioning:/etc/grafana/provisioning:Z,ro"
+      - "{{ monitoring_base }}/grafana/dashboards:/var/lib/grafana/dashboards:Z,ro"
+      - "{{ monitoring_base }}/grafana/data:/var/lib/grafana:Z"
+  no_log: true
+
+- name: Generate systemd units so containers start at boot
+  containers.podman.podman_generate_systemd:
+    name: "{{ item }}"
+    dest: /etc/systemd/system
+    new: false
+    restart_policy: always
+  loop: [prometheus, alertmanager, grafana]
+
+- name: Enable container units
+  ansible.builtin.systemd_service:
+    name: "container-{{ item }}"
+    enabled: true
+    daemon_reload: true
+  loop: [prometheus, alertmanager, grafana]

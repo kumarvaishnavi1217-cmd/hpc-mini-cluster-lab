@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: hpc-mini-cluster-lab
+  description: proxmox cluster for the Proxmox VE lab
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [bookworm]
+dependencies: []

@@ -1,0 +1,14 @@
+---
+slurmdbd_db_name: slurm_acct_db
+slurmdbd_db_user: slurm
+
+# Accounting hierarchy -> fair-share. Shares are relative within a parent.
+slurm_accounts:
+  - { name: physics,   parent: root, fairshare: 50, description: "Physics group" }
+  - { name: chemistry, parent: root, fairshare: 30, description: "Chemistry group" }
+  - { name: students,  parent: root, fairshare: 20, description: "Teaching / students" }
+
+slurm_qos:
+  - { name: normal, priority: 0,    extra: "MaxWall=2-00:00:00" }
+  - { name: high,   priority: 1000, extra: "MaxTRESPerUser=cpu=32 MaxWall=12:00:00" }
+  - { name: gpu,    priority: 500,  extra: "MaxTRESPerUser=gres/gpu=1" }

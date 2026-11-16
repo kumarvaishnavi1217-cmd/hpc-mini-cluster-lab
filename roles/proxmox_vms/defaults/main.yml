@@ -1,0 +1,4 @@
+---
+pve_vm_bridge_mgmt: vmbr0
+pve_vm_bridge_trunk: vmbr1
+pve_vm_disk_size: 40G

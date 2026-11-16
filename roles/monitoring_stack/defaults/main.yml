@@ -1,0 +1,7 @@
+---
+monitoring_base: /srv/monitoring
+prometheus_image: docker.io/prom/prometheus:v2.54.1
+alertmanager_image: docker.io/prom/alertmanager:v0.27.0
+grafana_image: docker.io/grafana/grafana-oss:11.2.0
+prometheus_retention: 30d
+alert_webhook_url: "http://127.0.0.1:5001/"   # replace with Slack/Teams/Matrix relay

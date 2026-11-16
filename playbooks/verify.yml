@@ -1,0 +1,57 @@
+---
+# Smoke tests after a deployment. Fails loudly if any layer is unhealthy.
+- name: Verify Ceph
+  hosts: "{{ ceph_bootstrap_host | default('ceph01') }}"
+  gather_facts: false
+  tasks:
+    - name: Ceph health
+      ansible.builtin.command: ceph health
+      register: verify_ceph
+      changed_when: false
+      failed_when: "'HEALTH_ERR' in verify_ceph.stdout"
+
+    - name: Show ceph status
+      ansible.builtin.debug:
+        var: verify_ceph.stdout
+
+- name: Verify CephFS /home on clients
+  hosts: ceph_clients
+  gather_facts: false
+  tasks:
+    - name: /home is CephFS
+      ansible.builtin.command: findmnt -n -o FSTYPE /home
+      register: verify_home
+      changed_when: false
+      failed_when: verify_home.stdout != 'ceph'
+
+- name: Verify Slurm
+  hosts: slurm_login
+  gather_facts: false
+  tasks:
+    - name: All compute nodes are idle/alloc/mix (none down)
+      ansible.builtin.command: sinfo -h -N -o "%N %t"
+      register: verify_sinfo
+      changed_when: false
+      failed_when: verify_sinfo.stdout is search('down|drain|fail')
+
+    - name: Run a 2-node test job
+      ansible.builtin.command: srun -N2 -p debug --time=1 hostname
+      become: true
+      become_user: alice
+      register: verify_srun
+      changed_when: false
+
+    - name: Show results
+      ansible.builtin.debug:
+        msg: "{{ verify_sinfo.stdout_lines + verify_srun.stdout_lines }}"
+
+- name: Verify monitoring
+  hosts: monitoring
+  gather_facts: false
+  tasks:
+    - name: Query Prometheus for down targets
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:9090/api/v1/query?query=up%3D%3D0"
+        return_content: true
+      register: verify_prom
+      failed_when: verify_prom.json.data.result | length > 0

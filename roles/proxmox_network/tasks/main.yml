@@ -1,0 +1,16 @@
+---
+- name: Install ifupdown2 and LACP tooling
+  ansible.builtin.apt:
+    name: [ifupdown2, ethtool, lldpd]
+    state: present
+    update_cache: true
+
+- name: Render /etc/network/interfaces (LACP bond + VLAN-aware bridge)
+  ansible.builtin.template:
+    src: interfaces.j2
+    dest: /etc/network/interfaces
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: Reload networking

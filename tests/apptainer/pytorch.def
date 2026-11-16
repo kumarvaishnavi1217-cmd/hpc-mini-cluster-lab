@@ -1,0 +1,11 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+
+%post
+    pip install --no-cache-dir numpy
+
+%runscript
+    exec python3 -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
+
+%labels
+    Purpose GPU smoke test for the gpu partition (run with: apptainer run --nv)

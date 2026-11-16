@@ -1,0 +1,45 @@
+---
+- name: Install Go toolchain and git
+  ansible.builtin.dnf:
+    name: [golang, git]
+    state: present
+
+- name: Clone exporter source at pinned tag
+  ansible.builtin.git:
+    repo: "{{ slurm_exporter_repo }}"
+    dest: /opt/src/prometheus-slurm-exporter
+    version: "{{ slurm_exporter_version }}"
+    depth: 1
+  register: slurm_exporter_src
+
+- name: Check for existing exporter binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/prometheus-slurm-exporter
+  register: slurm_exporter_bin
+
+- name: Build exporter
+  ansible.builtin.command: go build -o /usr/local/bin/prometheus-slurm-exporter .
+  args:
+    chdir: /opt/src/prometheus-slurm-exporter
+  environment:
+    GOPATH: /opt/go
+    GOFLAGS: -mod=mod
+  when: slurm_exporter_src.changed or not (slurm_exporter_bin.stat.exists | default(false))  # noqa: no-handler
+  changed_when: true
+  notify: Restart slurm_exporter
+
+- name: Install systemd unit
+  ansible.builtin.template:
+    src: slurm_exporter.service.j2
+    dest: /etc/systemd/system/slurm_exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart slurm_exporter
+
+- name: Enable slurm_exporter
+  ansible.builtin.systemd_service:
+    name: slurm_exporter
+    enabled: true
+    state: started
+    daemon_reload: true

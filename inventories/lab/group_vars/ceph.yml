@@ -1,0 +1,6 @@
+---
+vm_cores: 4
+vm_memory_mb: 8192
+# Extra virtual disks attached to each Ceph VM, consumed as OSDs
+ceph_osd_disks: [scsi1, scsi2]
+ceph_osd_disk_size_gb: 100
